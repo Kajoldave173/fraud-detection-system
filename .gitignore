@@ -218,4 +218,6 @@ __marimo__/
 .streamlit/secrets.toml
 .venv/
 data/raw/*.csv
-data/processed/
+data/processed/*
+!data/processed/*.dvc
+!data/processed/.gitignore
