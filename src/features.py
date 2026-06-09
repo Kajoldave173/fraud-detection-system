@@ -5,65 +5,47 @@ import pandas as pd
 
 
 def build_time_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Convert TransactionDT (seconds offset) into day/hour columns.
-
-    TransactionDT is seconds from an unknown reference datetime. We treat
-    day 0 = first day in the data, so TransactionDay is an integer day index
-    from 0 to ~181 across the dataset's ~6-month span.
-    """
+    """Convert TransactionDT (seconds offset) into day/hour columns."""
     seconds_per_day = 24 * 60 * 60
-    df["TransactionDay"] = (df["TransactionDT"] // seconds_per_day).astype(np.int16)
-    df["TransactionHour"] = ((df["TransactionDT"] // 3600) % 24).astype(np.int8)
-    return df
+    new_cols = pd.DataFrame({
+        "TransactionDay": (df["TransactionDT"] // seconds_per_day).astype(np.int16),
+        "TransactionHour": ((df["TransactionDT"] // 3600) % 24).astype(np.int8),
+    }, index=df.index)
+    return pd.concat([df, new_cols], axis=1)
 
 
 def build_uids(df: pd.DataFrame) -> pd.DataFrame:
     """Construct synthetic customer identifiers.
 
-    The IEEE-CIS dataset has no customer ID, but we can synthesize one.
-    D1 is "days since card was first seen", so (TransactionDay - D1) gives
-    the card's first-seen day -- a stable anchor that's identical across
-    every transaction from the same card.
-
-    UID_primary = card1 + addr1 + D1n  (the winner's formula)
+    UID_primary  = card1 + addr1 + D1n  (winner's formula; D1n is card's first-seen day)
     UID_fallback = card1 + addr1 + P_emaildomain  (when D1 is missing)
-    is_new_entity = 1 if both UIDs couldn't be built (true cold-start)
+    is_new_entity = 1 if both UIDs unbuildable (true cold-start)
     """
-    # D1n: a stable per-card anchor day
-    df["D1n"] = df["TransactionDay"] - df["D1"]
+    d1n = df["TransactionDay"] - df["D1"]
 
-    # Primary UID: card1 + addr1 + D1n
-    df["UID_primary"] = (
-        df["card1"].astype(str)
-        + "_"
-        + df["addr1"].astype(str)
-        + "_"
-        + df["D1n"].astype(str)
+    uid_primary = (
+        df["card1"].astype(str) + "_" + df["addr1"].astype(str) + "_" + d1n.astype(str)
     )
-    # Mark rows where any component was NaN (these UIDs are unreliable)
     primary_invalid = df["card1"].isna() | df["addr1"].isna() | df["D1"].isna()
-    df.loc[primary_invalid, "UID_primary"] = np.nan
+    uid_primary = uid_primary.where(~primary_invalid)
 
-    # Fallback UID: card1 + addr1 + P_emaildomain
-    df["UID_fallback"] = (
-        df["card1"].astype(str)
-        + "_"
-        + df["addr1"].astype(str)
-        + "_"
-        + df["P_emaildomain"].astype(str)
+    uid_fallback = (
+        df["card1"].astype(str) + "_" + df["addr1"].astype(str) + "_" + df["P_emaildomain"].astype(str)
     )
-    fallback_invalid = (
-        df["card1"].isna() | df["addr1"].isna() | df["P_emaildomain"].isna()
-    )
-    df.loc[fallback_invalid, "UID_fallback"] = np.nan
+    fallback_invalid = df["card1"].isna() | df["addr1"].isna() | df["P_emaildomain"].isna()
+    uid_fallback = uid_fallback.where(~fallback_invalid)
 
-    # Final UID: prefer primary, fall back to secondary
-    df["UID"] = df["UID_primary"].fillna(df["UID_fallback"])
+    uid = uid_primary.fillna(uid_fallback)
+    is_new_entity = uid.isna().astype(np.int8)
 
-    # Cold-start flag
-    df["is_new_entity"] = df["UID"].isna().astype(np.int8)
-
-    return df
+    new_cols = pd.DataFrame({
+        "D1n": d1n,
+        "UID_primary": uid_primary,
+        "UID_fallback": uid_fallback,
+        "UID": uid,
+        "is_new_entity": is_new_entity,
+    }, index=df.index)
+    return pd.concat([df, new_cols], axis=1)
 
 
 if __name__ == "__main__":
