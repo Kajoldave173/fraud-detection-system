@@ -221,3 +221,11 @@ data/raw/*.csv
 data/processed/*
 !data/processed/*.dvc
 !data/processed/.gitignore
+
+# IDE
+.vscode/
+
+# Model artifacts (reproducible from training script + DVC-tracked Parquet)
+model/artifacts/
+*.joblib
+*.npz
