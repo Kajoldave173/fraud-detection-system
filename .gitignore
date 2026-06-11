@@ -229,3 +229,4 @@ data/processed/*
 model/artifacts/
 *.joblib
 *.npz
+model/artifacts/shap/
